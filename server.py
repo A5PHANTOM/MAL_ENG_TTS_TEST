@@ -16,9 +16,10 @@ from pipecat.transports.smallwebrtc.request_handler import (
 )
 from pipecat.transports.base_transport import TransportParams
 from pipecat.pipeline.pipeline import Pipeline
-from pipecat.pipeline.runner import PipelineRunner
-from pipecat.pipeline.task import PipelineTask, PipelineParams
+from pipecat.workers.runner import WorkerRunner
+from pipecat.pipeline.worker import PipelineWorker, PipelineParams
 from pipecat.processors.aggregators.llm_context import LLMContext
+from pipecat.processors.aggregators.llm_response_universal import LLMUserAggregator, LLMAssistantAggregator
 from pipecat.frames.frames import StartFrame, LLMContextFrame
 from loguru import logger
 
@@ -65,7 +66,7 @@ async def start_bot(transport: SmallWebRTCTransport):
     tts = SarvamTTSService(
         api_key=SARVAM_API_KEY,
         settings=SarvamTTSService.Settings(
-            voice="anushka", # Good for Malayalam/English
+            voice="ritu", # Good for Malayalam/English
             model="bulbul:v3"
         )
     )
@@ -85,19 +86,23 @@ async def start_bot(transport: SmallWebRTCTransport):
         }
     ]
     context = LLMContext(messages=messages)
+    user_aggregator = LLMUserAggregator(context)
+    assistant_aggregator = LLMAssistantAggregator(context)
 
     # 6. Build Pipeline
     pipeline = Pipeline([
         transport.input(),
         stt,
+        user_aggregator,
         llm,
+        assistant_aggregator,
         tts,
         transport.output()
     ])
 
     # 7. Run Task
-    runner = PipelineRunner()
-    task = PipelineTask(
+    runner = WorkerRunner()
+    task = PipelineWorker(
         pipeline, 
         params=PipelineParams(allow_interruptions=True)
     )
@@ -113,7 +118,8 @@ async def start_bot(transport: SmallWebRTCTransport):
         LLMContextFrame(context=context)
     ])
     
-    await runner.run(task)
+    await runner.add_workers(task)
+    await runner.run()
 
 @app.post("/")
 @app.post("/offer")
@@ -178,5 +184,7 @@ async def webrtc_patch(request: Request):
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
+
+
 
 
